@@ -1,7 +1,7 @@
 from typing import Union
 
 from fastapi import FastAPI, HTTPException
-from sqlalchemy import create_engine, Column, Integer, String, Boolean
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from pydantic import BaseModel
@@ -64,9 +64,11 @@ def create_item(item: ItemModel):
 @app.put("/items/{item_id}")
 def update_item(item_id: int, item: ItemModel):
     try:
-        query = "UPDATE tasks SET title=%s, description=%s, completed=%s WHERE id=%s"
-        values = (item.title, item.description, item.completed, item_id)
-        db.query(query=query, values=values)
+        db_item = read_item(item_id)
+        item_data = item.dict(exclude_unset=True)
+        for key, value in item_data.items():
+            setattr(db_item, key, value)
+        db.add(db_item)
         db.commit()
         return {"message": "Item updated successfully"}
     except Exception as e:
