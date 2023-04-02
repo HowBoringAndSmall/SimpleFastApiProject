@@ -1,6 +1,6 @@
 from typing import Union
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, HTTPException
 from sqlalchemy import create_engine, Column, Integer, String, Boolean
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -34,83 +34,64 @@ class ItemModel(BaseModel):
     completed: Union[bool, None] = None
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-class ItemNotFoundException(Exception):
-    pass
-
-
-class ValidationException(Exception):
-    pass
-
-
-class DatabaseException(Exception):
-    pass
-
-
-def validate_data(data):
-    if not data.title:
-        raise ValidationException('Title is required')
-    if not data.description:
-        raise ValidationException('Description is required')
+db = SessionLocal()
 
 
 @app.get("/items/{item_id}")
-def read_item(item_id: int, db=Depends(get_db)):
+def read_item(item_id: int):
     try:
         item = db.query(Item).filter_by(id=item_id).first()
-        if item is None:
-            raise ItemNotFoundException()
-        return {"item": item}
-    except ItemNotFoundException:
-        return {'404': {'error': 'Item not found'}}
+        if item:
+            return item
+        else:
+            raise HTTPException(status_code=404, detail="Item not found")
     except Exception as e:
-        return {'505': {'error': str(e)}}
+        raise HTTPException(status_code=400, detail=f"Error reading task: {e}")
 
 
 @app.post("/items/")
-def create_item(item: ItemModel, db=Depends(get_db)):
+def create_item(item: ItemModel):
     try:
         new_task = Item(title=item.title, description=item.description)
-        validate_data(new_task)
         db.add(new_task)
         db.commit()
         db.refresh(new_task)
-        return new_task
-    except ValidationException:
-        return {'422': {'error': 'Invalid data'}}
-    except DatabaseException:
-        return {'500': {'error': 'Database error'}}
+        return {"message": "Item created successfully"}
     except Exception as e:
-        return {'422': {'error': str(e)}}
+        raise HTTPException(status_code=400, detail=f"Error creating task: {e}")
 
 
 @app.put("/items/{item_id}")
 def update_item(item_id: int, item: ItemModel):
-    return {"item_name": item.title, "item_price": item.description, "item_id": item_id}
+    try:
+        query = "UPDATE tasks SET title=%s, description=%s, completed=%s WHERE id=%s"
+        values = (item.title, item.description, item.completed, item_id)
+        db.query(query=query, values=values)
+        db.commit()
+        return {"message": "Item updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error updating task: {e}")
 
 
 @app.get("/items/all/{table}")
-def get_items(db=Depends(get_db)):
-    items = db.query(Item).all()
-    json_answer = {}
-    for item in items:
-        json_answer[item.id] = item.title
-    return json_answer
+def get_items():
+    try:
+        items = db.query(Item).all()
+        json_answer = {}
+        for item in items:
+            json_answer[item.id] = item.title
+        return json_answer
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error reading tasks: {e}")
 
 
 @app.delete("/items/{item_id}")
-def delete_item(item_id: int, db=Depends(get_db)):
-    record = read_item(item_id, db)
-    item = record["item"]
-    if item:
-        db.delete(item)
-        db.commit()
-        return True
-    return False
+def delete_item(item_id: int):
+    try:
+        item = read_item(item_id)
+        if item:
+            db.delete(item)
+            db.commit()
+            return {"message": "Item deleted successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error deleting task: {e}")
